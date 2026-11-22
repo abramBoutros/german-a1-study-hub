@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>German A1 — Master Study Hub (Kapitel 2–8)</title>
-  <meta name="description" content="Interactive German A1 Study Hub covering Kapitel 2–8: nouns in all forms, conjugated verbs, chapter grammar, software engineering extras, audio playback & practice lab." />
+  <meta name="description" content="Interactive German A1 Study Hub covering Kapitel 2–8: nouns in all forms, conjugated verbs, chapter grammar, software engineering extras, mastery tracking, audio playback & 4-mode practice lab." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -20,10 +20,12 @@
         <div class="brand-flag" aria-hidden="true"></div>
         <div>
           <h1>German A1</h1>
-          <p>Study Hub · Kapitel 2–8</p>
+          <p>Editorial Study Studio · K2–K8</p>
         </div>
         <button class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="Close menu">✕</button>
       </div>
+
+      <div id="sidebarMastery"></div>
 
       <div>
         <div class="nav-section-label">Overview &amp; Practice</div>
@@ -61,15 +63,30 @@
           <kbd class="search-kbd" id="searchKbd">/</kbd>
           <button class="search-clear" id="searchClear" aria-label="Clear search">✕</button>
         </div>
+
         <div class="topbar-controls">
-          <div class="audio-control" title="Adjust German audio playback speed">
-            <span class="audio-label">🔊</span>
-            <button class="speed-btn" data-speed="0.5" title="Very slow (0.5×)">0.5×</button>
-            <button class="speed-btn" data-speed="0.7" title="Slow (0.7×)">0.7×</button>
-            <button class="speed-btn" data-speed="0.85" title="Clear A1 (0.85×)">0.85×</button>
-            <button class="speed-btn" data-speed="1" title="Normal (1×)">1×</button>
-            <button class="speed-stop" id="audioStopBtn" title="Stop audio">⏹</button>
+          <button class="cheatsheet-btn" id="cheatSheetBtn" title="Quick Grammar Cheat-Sheet (Press G)">
+            📖 <span>Grammar</span> <kbd>G</kbd>
+          </button>
+
+          <div class="audio-popover-wrap" id="audioPopoverWrap">
+            <button class="audio-trigger-btn" id="audioTriggerBtn" title="Audio speed & playback controls">
+              🔊 <span id="audioSpeedLabel">0.85×</span>
+            </button>
+            <div class="audio-popover" id="audioPopover">
+              <div class="audio-popover-title">
+                <span>German Audio Speed</span>
+                <button class="speed-stop" id="audioStopBtn" title="Stop audio">⏹ Stop</button>
+              </div>
+              <div class="audio-popover-row">
+                <button class="speed-btn" data-speed="0.5">0.5×</button>
+                <button class="speed-btn" data-speed="0.7">0.7×</button>
+                <button class="speed-btn" data-speed="0.85">0.85×</button>
+                <button class="speed-btn" data-speed="1">1×</button>
+              </div>
+            </div>
           </div>
+
           <button class="icon-btn" id="themeToggle" title="Toggle Dark/Light Theme">🌙</button>
         </div>
       </header>
@@ -78,14 +95,33 @@
     </main>
   </div>
 
+  <!-- Slide-Over Quick Grammar Cheat-Sheet Drawer -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="grammar-drawer" id="grammarDrawer" aria-hidden="true" aria-label="Quick German A1 Grammar Cheat-Sheet">
+    <div class="drawer-header">
+      <div>
+        <h3 class="drawer-title">Quick Grammar Sheet</h3>
+        <p class="drawer-subtitle">A1 Essential Tables &amp; Formulas · Press <kbd>G</kbd></p>
+      </div>
+      <button class="drawer-close" id="drawerClose" aria-label="Close grammar drawer">✕</button>
+    </div>
+    <div class="drawer-tabs" id="grammarDrawerTabs" role="tablist"></div>
+    <div class="drawer-body" id="grammarDrawerBody"></div>
+    <div class="drawer-footer">
+      <span><kbd>1</kbd>–<kbd>5</kbd> Tabs · <kbd>Esc</kbd> Close</span>
+      <button class="btn-link" id="jumpFullGrammarBtn">Full Chapter Guides →</button>
+    </div>
+  </aside>
+
   <button class="scroll-top-btn" id="scrollTopBtn" title="Back to top" aria-label="Back to top">↑</button>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <!-- Load Chapter Data -->
+  <!-- Load Chapter Data & Modules -->
   <script src="data-ch2-4.js"></script>
   <script src="data-ch5-6.js"></script>
   <script src="data-ch7-8.js"></script>
   <script src="ex-translations.js"></script>
+  <script src="grammar-drawer.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
