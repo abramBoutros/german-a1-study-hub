@@ -7,19 +7,22 @@
     view: "all", // "all" | "practice" | "starred" | chapter id (2..8)
     tab: "nouns", // "nouns" | "verbs" | "expressions" | "grammar"
     search: "",
-    nounGender: "all", // "all" | "der" | "das" | "die"
-    sourceFilter: "all", // "all" | "slides" | "extra"
+    nounGender: "all",
+    sourceFilter: "all",
     nounCategory: "all",
-    nounLayout: "cards", // "cards" | "table"
-    verbType: "all", // "all" | "Regular" | "Vowel" | "Separable" | "Modal"
+    nounLayout: "cards",
+    verbType: "all",
+    hideEnglish: false,
     starred: new Set(JSON.parse(localStorage.getItem("german_a1_starred") || "[]")),
     theme: localStorage.getItem("german_a1_theme") || "light",
     speechRate: parseFloat(localStorage.getItem("german_a1_speed") || "0.85"),
+    activeSpeakBtn: null,
 
     // Practice Lab state
     pMode: "articles", // "articles" | "flashcards" | "verbs"
-    pScope: "all", // "all" | "starred" | chapter id
+    pScope: "all",
     pIncludeExtra: true,
+    pAutoAudio: true,
     pDeck: [],
     pIdx: 0,
     pFlipped: false,
@@ -30,6 +33,8 @@
     pVerbPron: null
   };
 
+  let toastTimer = null;
+
   // Helpers
   const $ = (sel) => document.querySelector(sel);
   const esc = (str) =>
@@ -39,14 +44,25 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
 
+  function showToast(msg) {
+    const el = $("#toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1900);
+  }
+
   function itemKey(type, chId, label) {
     return `${type}:${chId}:${label}`;
   }
 
   function toggleStar(key) {
-    if (state.starred.has(key)) state.starred.delete(key);
-    else state.starred.add(key);
+    const added = !state.starred.has(key);
+    if (added) state.starred.add(key);
+    else state.starred.delete(key);
     localStorage.setItem("german_a1_starred", JSON.stringify([...state.starred]));
+    showToast(added ? "★ Saved to Starred Review" : "Removed from Starred Review");
     renderNav();
     renderContent();
   }
@@ -63,35 +79,47 @@
           <span class="ex-de">„${esc(exDe)}“</span>
           ${en ? `<span class="ex-en">${esc(en)}</span>` : ""}
         </div>
-        ${withPlayBtn ? `<button class="mini-btn speak-btn" style="width:26px;height:26px;font-size:12px;" data-speak="${esc(exDe)}" title="Hear sentence at ${state.speechRate}× speed">▶</button>` : ""}
+        ${withPlayBtn ? `<button class="mini-btn speak-btn" style="width:27px;height:27px;font-size:12px;" data-speak="${esc(exDe)}" title="Hear sentence at ${state.speechRate}× speed">▶</button>` : ""}
       </div>
     `;
   }
 
-  function setPlayingUI(isPlaying) {
+  function clearSpeakingHighlight() {
+    if (state.activeSpeakBtn) {
+      state.activeSpeakBtn.classList.remove("speaking");
+      state.activeSpeakBtn = null;
+    }
     const stopBtn = $("#audioStopBtn");
-    if (stopBtn) stopBtn.classList.toggle("playing", isPlaying);
+    if (stopBtn) stopBtn.classList.remove("playing");
   }
 
   function stopAudio() {
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-    setPlayingUI(false);
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    clearSpeakingHighlight();
   }
 
-  function speakDE(text) {
+  function speakDE(text, btnEl = null) {
     if (!("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
+    clearSpeakingHighlight();
+
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "de-DE";
     u.rate = state.speechRate;
     const voices = window.speechSynthesis.getVoices();
     const de = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("de"));
     if (de) u.voice = de;
-    u.onstart = () => setPlayingUI(true);
-    u.onend = () => setPlayingUI(false);
-    u.onerror = () => setPlayingUI(false);
+
+    const stopBtn = $("#audioStopBtn");
+    u.onstart = () => {
+      if (stopBtn) stopBtn.classList.add("playing");
+      if (btnEl) {
+        btnEl.classList.add("speaking");
+        state.activeSpeakBtn = btnEl;
+      }
+    };
+    u.onend = clearSpeakingHighlight;
+    u.onerror = clearSpeakingHighlight;
     window.speechSynthesis.speak(u);
   }
 
@@ -105,8 +133,18 @@
   function applyTheme() {
     document.documentElement.setAttribute("data-theme", state.theme);
     const btn = $("#themeToggle");
-    if (btn) btn.textContent = state.theme === "dark" ? "☀️ Light" : "🌙 Dark";
+    if (btn) btn.textContent = state.theme === "dark" ? "☀️" : "🌙";
     localStorage.setItem("german_a1_theme", state.theme);
+  }
+
+  function closeSidebar() {
+    $("#sidebar").classList.remove("open");
+    $("#sidebarBackdrop").classList.remove("show");
+  }
+
+  function openSidebar() {
+    $("#sidebar").classList.add("open");
+    $("#sidebarBackdrop").classList.add("show");
   }
 
   function getScopedChapters() {
@@ -149,8 +187,10 @@
 
   function matchesSearch(obj, q) {
     if (!q) return true;
-    const hay = Object.values(obj)
-      .filter((v) => typeof v === "string")
+    const hay = [
+      ...Object.values(obj).filter((v) => typeof v === "string"),
+      obj.ex ? getExEn(obj.ex) : ""
+    ]
       .join(" ")
       .toLowerCase();
     return hay.includes(q);
@@ -163,6 +203,16 @@
     if (t.includes("vowel")) return "t-vow";
     if (t.includes("irregular")) return "t-irr";
     return "";
+  }
+
+  function selectView(v) {
+    state.view = /^\d+$/.test(String(v)) ? Number(v) : v;
+    state.nounCategory = "all";
+    if (state.view === "practice") initPracticeDeck();
+    closeSidebar();
+    renderNav();
+    renderContent();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   // Render Sidebar Navigation
@@ -197,22 +247,15 @@
     ).join("");
 
     document.querySelectorAll(".nav-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const v = btn.dataset.view;
-        state.view = /^\d+$/.test(v) ? Number(v) : v;
-        state.nounCategory = "all";
-        if (state.view === "practice") initPracticeDeck();
-        $("#sidebar").classList.remove("open");
-        renderNav();
-        renderContent();
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      });
+      btn.addEventListener("click", () => selectView(btn.dataset.view));
     });
   }
 
   // Render Main Content
   function renderContent() {
     const root = $("#contentRoot");
+    root.classList.toggle("hide-en", state.hideEnglish && state.view !== "practice");
+
     if (state.view === "practice") {
       renderPracticeLab(root);
       return;
@@ -254,6 +297,7 @@
 
     // Hero section
     let heroHTML = "";
+    let chapterStripHTML = "";
     if (typeof state.view === "number") {
       const ch = chapters[0];
       heroHTML = `
@@ -299,7 +343,7 @@
             <div>
               <div class="hero-kicker">🇩🇪 German A1 Complete Reference</div>
               <h2>Kapitel 2 – 8 Master Study Hub</h2>
-              <p class="hero-desc">Every noun in all forms (der/das/die, Plural, Akkusativ, Dativ, Feminine), every verb fully conjugated (Präsens, Imperativ, Präteritum), curated topic extras, and all chapter grammar in one searchable local page.</p>
+              <p class="hero-desc">Every noun in all forms (der/das/die, Plural, Akkusativ, Dativ, Feminine), every verb fully conjugated, translated examples with adjustable German audio, curated extras, and complete chapter grammar.</p>
             </div>
             <button class="btn-primary" id="practiceAllBtn">⚡ Launch Practice Lab</button>
           </div>
@@ -308,10 +352,28 @@
             <span class="stat-chip"><strong>${raw.verbs.length}</strong> Verbs</span>
             <span class="stat-chip"><strong>${raw.expressions.length}</strong> Phrases</span>
             <span class="stat-chip"><strong>${raw.grammar.length}</strong> Grammar Guides</span>
-            <span class="stat-chip"><strong>${slideCount}</strong> Slide Items + <strong>${extraCount}</strong> Topic Extras</span>
+            <span class="stat-chip"><strong>${slideCount}</strong> Core + <strong>${extraCount}</strong> Extras</span>
           </div>
         </section>
       `;
+      if (!q) {
+        chapterStripHTML = `
+          <div class="chapter-strip">
+            ${CHAPTERS.map(
+              (ch) => `
+              <button class="chapter-mini" style="--ch-color:${ch.color}" data-jump-ch="${ch.id}">
+                <div class="chapter-mini-head">
+                  <span>${esc(ch.code)}</span>
+                  <span>${ch.icon}</span>
+                </div>
+                <div class="chapter-mini-title">${esc(ch.title)}</div>
+                <div class="chapter-mini-meta">${ch.nouns.length} nouns · ${ch.verbs.length} verbs</div>
+              </button>
+            `
+            ).join("")}
+          </div>
+        `;
+      }
     }
 
     // Tabs
@@ -347,7 +409,7 @@
       bodyHTML = renderGrammarSection(grammar);
     }
 
-    root.innerHTML = heroHTML + tabsHTML + bodyHTML;
+    root.innerHTML = heroHTML + chapterStripHTML + tabsHTML + bodyHTML;
     bindContentEvents();
   }
 
@@ -356,13 +418,13 @@
     const filterHTML = `
       <div class="filter-bar">
         <div class="pill-group">
-          <button class="pill ${state.nounGender === "all" ? "active" : ""}" data-gender="all">All Articles</button>
+          <button class="pill ${state.nounGender === "all" ? "active" : ""}" data-gender="all">All</button>
           <button class="pill p-der ${state.nounGender === "der" ? "active" : ""}" data-gender="der">der</button>
           <button class="pill p-das ${state.nounGender === "das" ? "active" : ""}" data-gender="das">das</button>
           <button class="pill p-die ${state.nounGender === "die" ? "active" : ""}" data-gender="die">die</button>
-          <span style="width:6px"></span>
-          <button class="pill ${state.sourceFilter === "all" ? "active" : ""}" data-source="all">Slides + Extra</button>
-          <button class="pill ${state.sourceFilter === "slides" ? "active" : ""}" data-source="slides">Slides Only</button>
+          <span style="width:4px"></span>
+          <button class="pill ${state.sourceFilter === "all" ? "active" : ""}" data-source="all">Core + Extra</button>
+          <button class="pill ${state.sourceFilter === "slides" ? "active" : ""}" data-source="slides">Core Only</button>
           <button class="pill p-extra ${state.sourceFilter === "extra" ? "active" : ""}" data-source="extra">✨ Extra Only</button>
         </div>
         <div class="pill-group">
@@ -370,6 +432,9 @@
             <option value="all">All Topics (${categories.length})</option>
             ${categories.map((c) => `<option value="${esc(c)}" ${state.nounCategory === c ? "selected" : ""}>${esc(c)}</option>`).join("")}
           </select>
+          <button class="pill p-blur ${state.hideEnglish ? "active" : ""}" id="toggleBlurBtn" title="Blur English translations for active recall (hover or tap to reveal)">
+            ${state.hideEnglish ? "👁️ Show English" : "🙈 Hide English"}
+          </button>
           <button class="pill ${state.nounLayout === "cards" ? "active" : ""}" data-layout="cards">▦ Cards</button>
           <button class="pill ${state.nounLayout === "table" ? "active" : ""}" data-layout="table">☰ Table</button>
         </div>
@@ -392,7 +457,7 @@
                 <th>Akkusativ</th>
                 <th>Dativ</th>
                 <th>English</th>
-                <th>Chapter / Topic</th>
+                <th>Chapter</th>
                 <th></th>
               </tr>
             </thead>
@@ -409,7 +474,7 @@
                       <td>${esc(n.pl)}</td>
                       <td>${esc(n.akk)}</td>
                       <td>${esc(n.dat)}</td>
-                      <td>${esc(n.en)}</td>
+                      <td class="td-en">${esc(n.en)}</td>
                       <td>
                         <span class="badge-ch">${esc(n.chCode)}</span>
                         ${n.extra ? `<span class="badge-extra">Extra</span>` : ""}
@@ -459,7 +524,7 @@
                 ${renderExampleHTML(n.ex, true)}
                 <div class="card-meta">
                   <span class="badge-ch">${esc(n.chCode)}</span>
-                  ${n.extra ? `<span class="badge-extra">✨ Extra Topic Vocab</span>` : `<span class="badge-cat">From Slides</span>`}
+                  ${n.extra ? `<span class="badge-extra">✨ Extra</span>` : `<span class="badge-cat">Core</span>`}
                 </div>
               </article>
             `;
@@ -476,13 +541,16 @@
           <button class="pill ${state.verbType === "all" ? "active" : ""}" data-vtype="all">All Verbs</button>
           <button class="pill ${state.verbType === "Regular" ? "active" : ""}" data-vtype="Regular">Regular</button>
           <button class="pill ${state.verbType === "Vowel" ? "active" : ""}" data-vtype="Vowel">Vowel Change</button>
-          <button class="pill ${state.verbType === "Separable" ? "active" : ""}" data-vtype="Separable">Separable (Trennbar)</button>
+          <button class="pill ${state.verbType === "Separable" ? "active" : ""}" data-vtype="Separable">Separable</button>
           <button class="pill ${state.verbType === "Modal" ? "active" : ""}" data-vtype="Modal">Modal</button>
         </div>
         <div class="pill-group">
-          <button class="pill ${state.sourceFilter === "all" ? "active" : ""}" data-source="all">Slides + Extra</button>
-          <button class="pill ${state.sourceFilter === "slides" ? "active" : ""}" data-source="slides">Slides Only</button>
+          <button class="pill ${state.sourceFilter === "all" ? "active" : ""}" data-source="all">Core + Extra</button>
+          <button class="pill ${state.sourceFilter === "slides" ? "active" : ""}" data-source="slides">Core Only</button>
           <button class="pill p-extra ${state.sourceFilter === "extra" ? "active" : ""}" data-source="extra">✨ Extra Only</button>
+          <button class="pill p-blur ${state.hideEnglish ? "active" : ""}" id="toggleBlurBtn">
+            ${state.hideEnglish ? "👁️ Show English" : "🙈 Hide English"}
+          </button>
         </div>
       </div>
     `;
@@ -540,10 +608,13 @@
     const filterHTML = `
       <div class="filter-bar">
         <div class="pill-group">
-          <button class="pill ${state.sourceFilter === "all" ? "active" : ""}" data-source="all">Slides + Extra</button>
-          <button class="pill ${state.sourceFilter === "slides" ? "active" : ""}" data-source="slides">Slides Only</button>
+          <button class="pill ${state.sourceFilter === "all" ? "active" : ""}" data-source="all">Core + Extra</button>
+          <button class="pill ${state.sourceFilter === "slides" ? "active" : ""}" data-source="slides">Core Only</button>
           <button class="pill p-extra ${state.sourceFilter === "extra" ? "active" : ""}" data-source="extra">✨ Extra Only</button>
         </div>
+        <button class="pill p-blur ${state.hideEnglish ? "active" : ""}" id="toggleBlurBtn">
+          ${state.hideEnglish ? "👁️ Show English" : "🙈 Hide English"}
+        </button>
       </div>
     `;
 
@@ -618,6 +689,9 @@
   }
 
   function bindContentEvents() {
+    document.querySelectorAll("[data-jump-ch]").forEach((b) =>
+      b.addEventListener("click", () => selectView(Number(b.dataset.jumpCh)))
+    );
     document.querySelectorAll(".tab-btn").forEach((b) =>
       b.addEventListener("click", () => {
         state.tab = b.dataset.tab;
@@ -648,6 +722,19 @@
         renderContent();
       })
     );
+    const blurBtn = $("#toggleBlurBtn");
+    if (blurBtn) {
+      blurBtn.addEventListener("click", () => {
+        state.hideEnglish = !state.hideEnglish;
+        showToast(state.hideEnglish ? "🙈 English hidden — hover or tap to reveal" : "👁️ English visible");
+        renderContent();
+      });
+    }
+    if (state.hideEnglish) {
+      document.querySelectorAll(".word-en, .ex-en, .expr-en, .td-en").forEach((el) => {
+        el.addEventListener("click", () => el.classList.toggle("revealed"));
+      });
+    }
     const catSelect = $("#catSelect");
     if (catSelect) {
       catSelect.addEventListener("change", () => {
@@ -656,7 +743,7 @@
       });
     }
     document.querySelectorAll(".speak-btn").forEach((b) =>
-      b.addEventListener("click", () => speakDE(b.dataset.speak))
+      b.addEventListener("click", () => speakDE(b.dataset.speak, b))
     );
     document.querySelectorAll(".star-btn").forEach((b) =>
       b.addEventListener("click", () => toggleStar(b.dataset.star))
@@ -741,12 +828,12 @@
     const acc = state.pTotal > 0 ? Math.round((state.pCorrect / state.pTotal) * 100) : 0;
     const controlsHTML = `
       <section class="hero">
-        <div class="hero-accent-bar" style="background:#7c3aed"></div>
+        <div class="hero-accent-bar" style="background:linear-gradient(90deg,#7c3aed,#2563eb)"></div>
         <div class="hero-top">
           <div>
             <div class="hero-kicker" style="color:#7c3aed">⚡ Interactive Practice Lab</div>
             <h2>Train Articles, Vocabulary &amp; Verbs</h2>
-            <p class="hero-desc">Build muscle memory for der/das/die, noun plurals &amp; cases, and verb conjugations across any chapter.</p>
+            <p class="hero-desc">Build real recall for der/das/die, noun plurals &amp; cases, and verb conjugations across any chapter.</p>
           </div>
           <div class="stats-row" style="margin-top:0">
             <span class="stat-chip">🔥 Streak: <strong>${state.pStreak}</strong></span>
@@ -768,27 +855,34 @@
             ${CHAPTERS.map((c) => `<option value="${c.id}" ${state.pScope === c.id ? "selected" : ""}>${esc(c.code)}: ${esc(c.title)}</option>`).join("")}
           </select>
           <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:5px;cursor:pointer;">
-            <input type="checkbox" id="pExtraCheck" ${state.pIncludeExtra ? "checked" : ""} /> Include Extras
+            <input type="checkbox" id="pExtraCheck" ${state.pIncludeExtra ? "checked" : ""} /> Extras
           </label>
+          <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="pAudioCheck" ${state.pAutoAudio ? "checked" : ""} /> Auto Audio
+          </label>
+          <button class="pill" id="shuffleDeckBtn" title="Shuffle deck">🔀 Shuffle</button>
         </div>
       </div>
     `;
 
     if (state.pDeck.length === 0) {
-      root.innerHTML = controlsHTML + `<div class="empty-state">No cards available for this selection (e.g., star some words first or pick a chapter).</div>`;
+      root.innerHTML = controlsHTML + `<div class="empty-state">No cards available for this selection (star some words first or pick a chapter).</div>`;
       bindPracticeControls();
       return;
     }
 
     const item = state.pDeck[state.pIdx];
+    const pct = Math.round(((state.pIdx + 1) / state.pDeck.length) * 100);
+    const progressHTML = `<div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>`;
     let stageHTML = "";
 
     if (state.pMode === "articles") {
       stageHTML = `
         <div class="practice-stage">
+          ${progressHTML}
           <div class="card-meta" style="justify-content:center;">
             <span class="badge-ch">${esc(item.chCode)}</span>
-            <span class="badge-cat">${esc(item.cat)}</span>
+            <span class="badge-cat">${esc(item.cat.replace(/^Extra:\s*/, ""))}</span>
             <span class="badge-cat">Card ${state.pIdx + 1} / ${state.pDeck.length}</span>
           </div>
           <div class="flashcard-word">${esc(item.sg)}</div>
@@ -806,15 +900,16 @@
               <div style="margin-top:6px;font-weight:500;color:var(--text);">
                 Plural: <strong>${esc(item.pl)}</strong> · Akk: <strong>${esc(item.akk)}</strong> · Dat: <strong>${esc(item.dat)}</strong>
               </div>
-              <div style="margin-top:4px;font-style:italic;font-weight:400;color:var(--text-muted);">„${esc(item.ex)}“</div>
+              <div style="margin-top:5px;font-style:italic;font-weight:500;color:var(--text);">„${esc(item.ex)}“</div>
               ${getExEn(item.ex) ? `<div style="margin-top:2px;font-size:12.5px;font-weight:400;color:var(--text-soft);">${esc(getExEn(item.ex))}</div>` : ""}
             </div>
-            <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;">
-              <button class="btn-secondary speak-btn" data-speak="${esc(item.art + " " + item.sg)}">🔊 Hear</button>
+            <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+              <button class="btn-secondary speak-btn" data-speak="${esc(item.art + " " + item.sg)}">🔊 Hear Word</button>
+              <button class="btn-secondary star-btn ${state.starred.has(item.key) ? "starred" : ""}" data-star="${esc(item.key)}">★ ${state.starred.has(item.key) ? "Starred" : "Star"}</button>
               <button class="btn-primary" id="nextCardBtn">Next Word →</button>
             </div>
           `
-              : `<div style="font-size:12px;color:var(--text-soft);">Keyboard shortcuts: press <strong>1</strong> (der), <strong>2</strong> (das), <strong>3</strong> (die)</div>`
+              : `<div class="kbd-hints"><span><kbd>1</kbd> der</span><span><kbd>2</kbd> das</span><span><kbd>3</kbd> die</span></div>`
           }
         </div>
       `;
@@ -822,16 +917,18 @@
       const isNoun = item.kind === "noun";
       stageHTML = `
         <div class="practice-stage">
+          ${progressHTML}
           <div class="card-meta" style="justify-content:center;">
             <span class="badge-ch">${esc(item.chCode)}</span>
             <span class="badge-cat">${isNoun ? "Noun" : "Verb"}</span>
             <span class="badge-cat">Card ${state.pIdx + 1} / ${state.pDeck.length}</span>
           </div>
-          <div class="flashcard-word">${isNoun ? esc(item.en) : esc(item.en)}</div>
+          <div class="flashcard-word">${esc(item.en)}</div>
           <div class="flashcard-sub">${isNoun ? "Recall article, singular, plural &amp; cases" : "Recall infinitive &amp; conjugations"}</div>
           ${
             !state.pFlipped
-              ? `<button class="btn-primary" id="flipBtn">Reveal German Answer</button>`
+              ? `<button class="btn-primary" id="flipBtn">Reveal German Answer</button>
+                 <div class="kbd-hints"><span><kbd>Space</kbd> Reveal</span></div>`
               : `
             <div class="flashcard-answer">
               ${
@@ -865,24 +962,26 @@
                 ${renderExampleHTML(item.ex, true)}
               `
               }
-              <div style="margin-top:18px;display:flex;gap:10px;justify-content:center;">
-                <button class="btn-secondary star-btn ${state.starred.has(item.key) ? "starred" : ""}" data-star="${esc(item.key)}">★ ${state.starred.has(item.key) ? "Starred" : "Star for Review"}</button>
+              <div style="margin-top:18px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+                <button class="btn-secondary star-btn ${state.starred.has(item.key) ? "starred" : ""}" data-star="${esc(item.key)}">★ ${state.starred.has(item.key) ? "Starred" : "Star"}</button>
                 <button class="btn-primary" id="nextCardBtn">Next Card →</button>
               </div>
+              <div class="kbd-hints"><span><kbd>Enter</kbd> Next</span><span><kbd>R</kbd> Replay audio</span></div>
             </div>
           `
           }
         </div>
       `;
     } else {
-      // Verb Conjugation Drill
       const pron = state.pVerbPron;
       const expected = item[pron.key];
       stageHTML = `
         <div class="practice-stage">
+          ${progressHTML}
           <div class="card-meta" style="justify-content:center;">
             <span class="badge-ch">${esc(item.chCode)}</span>
             <span class="vtype ${verbTypeClass(item.type)}">${esc(item.type)}</span>
+            <span class="badge-cat">Card ${state.pIdx + 1} / ${state.pDeck.length}</span>
           </div>
           <div class="flashcard-word">${esc(pron.label)} + <span style="color:var(--accent)">${esc(item.inf)}</span></div>
           <div class="flashcard-sub">${esc(item.en)}</div>
@@ -899,10 +998,10 @@
               : `
             <div class="feedback-box ${state.pFeedback.ok ? "feedback-ok" : "feedback-bad"}">
               ${state.pFeedback.ok ? `✅ Perfect! <strong>${esc(pron.label)} ${esc(expected)}</strong>` : `❌ Answer: <strong>${esc(pron.label)} ${esc(expected)}</strong>`}
-              <div style="margin-top:5px;font-style:italic;font-weight:400;color:var(--text-muted);">„${esc(item.ex)}“</div>
+              <div style="margin-top:5px;font-style:italic;font-weight:500;color:var(--text);">„${esc(item.ex)}“</div>
               ${getExEn(item.ex) ? `<div style="margin-top:2px;font-size:12.5px;font-weight:400;color:var(--text-soft);">${esc(getExEn(item.ex))}</div>` : ""}
             </div>
-            <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;">
+            <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
               <button class="btn-secondary speak-btn" data-speak="${esc(pron.key === "er" ? "er " + expected : pron.key + " " + expected)}">🔊 Hear</button>
               <button class="btn-primary" id="nextCardBtn">Next Verb →</button>
             </div>
@@ -927,7 +1026,15 @@
       state.pStreak = 0;
     }
     state.pFeedback = { ok };
-    speakDE(item.art + " " + item.sg);
+    if (state.pAutoAudio) speakDE(item.art + " " + item.sg);
+    renderContent();
+  }
+
+  function flipFlashcard(item) {
+    state.pFlipped = true;
+    if (state.pAutoAudio) {
+      speakDE(item.kind === "noun" ? item.art + " " + item.sg : item.inf);
+    }
     renderContent();
   }
 
@@ -944,6 +1051,9 @@
       state.pStreak = 0;
     }
     state.pFeedback = { ok };
+    if (state.pAutoAudio) {
+      speakDE((state.pVerbPron.key === "er" ? "er " : state.pVerbPron.key + " ") + item[state.pVerbPron.key]);
+    }
     renderContent();
   }
 
@@ -972,17 +1082,26 @@
         renderContent();
       });
     }
+    const audioCheck = $("#pAudioCheck");
+    if (audioCheck) {
+      audioCheck.addEventListener("change", () => {
+        state.pAutoAudio = audioCheck.checked;
+      });
+    }
+    const shuffleBtn = $("#shuffleDeckBtn");
+    if (shuffleBtn) {
+      shuffleBtn.addEventListener("click", () => {
+        initPracticeDeck();
+        showToast("🔀 Deck shuffled");
+        renderContent();
+      });
+    }
 
     document.querySelectorAll("[data-art]").forEach((b) =>
       b.addEventListener("click", () => answerArticle(b.dataset.art, item))
     );
     const flipBtn = $("#flipBtn");
-    if (flipBtn) {
-      flipBtn.addEventListener("click", () => {
-        state.pFlipped = true;
-        renderContent();
-      });
-    }
+    if (flipBtn) flipBtn.addEventListener("click", () => flipFlashcard(item));
     const nextBtn = $("#nextCardBtn");
     if (nextBtn) nextBtn.addEventListener("click", nextCard);
 
@@ -1006,7 +1125,7 @@
       })
     );
     document.querySelectorAll(".speak-btn").forEach((b) =>
-      b.addEventListener("click", () => speakDE(b.dataset.speak))
+      b.addEventListener("click", () => speakDE(b.dataset.speak, b))
     );
     document.querySelectorAll(".star-btn").forEach((b) =>
       b.addEventListener("click", () => toggleStar(b.dataset.star))
@@ -1022,6 +1141,7 @@
       b.addEventListener("click", () => {
         state.speechRate = parseFloat(b.dataset.speed);
         applySpeedUI();
+        showToast(`🔊 Audio speed: ${state.speechRate}×`);
       });
     });
 
@@ -1033,15 +1153,24 @@
       applyTheme();
     });
 
-    $("#mobileMenuBtn").addEventListener("click", () => {
-      $("#sidebar").classList.toggle("open");
-    });
+    $("#mobileMenuBtn").addEventListener("click", openSidebar);
+    $("#sidebarCloseBtn").addEventListener("click", closeSidebar);
+    $("#sidebarBackdrop").addEventListener("click", closeSidebar);
+
+    const scrollBtn = $("#scrollTopBtn");
+    window.addEventListener("scroll", () => {
+      scrollBtn.classList.toggle("show", window.scrollY > 380);
+    }, { passive: true });
+    scrollBtn.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
 
     const searchInput = $("#globalSearch");
     const searchClear = $("#searchClear");
+    const searchKbd = $("#searchKbd");
     searchInput.addEventListener("input", () => {
       state.search = searchInput.value;
-      searchClear.classList.toggle("show", state.search.length > 0);
+      const hasQ = state.search.length > 0;
+      searchClear.classList.toggle("show", hasQ);
+      if (searchKbd) searchKbd.style.display = hasQ ? "none" : "";
       if (state.view === "practice") {
         state.view = "all";
         renderNav();
@@ -1053,22 +1182,44 @@
       searchInput.value = "";
       state.search = "";
       searchClear.classList.remove("show");
+      if (searchKbd) searchKbd.style.display = "";
       renderContent();
     });
 
     document.addEventListener("keydown", (e) => {
-      if (e.key === "/" && document.activeElement !== searchInput && document.activeElement.tagName !== "INPUT") {
+      const inInput = document.activeElement && document.activeElement.tagName === "INPUT";
+      if (e.key === "/" && !inInput) {
         e.preventDefault();
         searchInput.focus();
         return;
       }
-      if (state.view === "practice" && state.pMode === "articles" && state.pDeck.length > 0) {
+      if (e.key === "Escape") {
+        closeSidebar();
+        if (document.activeElement === searchInput) searchInput.blur();
+        return;
+      }
+      if (state.view === "practice" && state.pDeck.length > 0 && !inInput) {
         const item = state.pDeck[state.pIdx];
-        if (!state.pFeedback) {
-          if (e.key === "1") answerArticle("der", item);
-          if (e.key === "2") answerArticle("das", item);
-          if (e.key === "3") answerArticle("die", item);
-        } else if (e.key === "Enter" || e.key === " ") {
+        if (state.pMode === "articles") {
+          if (!state.pFeedback) {
+            if (e.key === "1") answerArticle("der", item);
+            if (e.key === "2") answerArticle("das", item);
+            if (e.key === "3") answerArticle("die", item);
+          } else if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            nextCard();
+          }
+        } else if (state.pMode === "flashcards") {
+          if (!state.pFlipped && e.key === " ") {
+            e.preventDefault();
+            flipFlashcard(item);
+          } else if (state.pFlipped && e.key === "Enter") {
+            e.preventDefault();
+            nextCard();
+          } else if (state.pFlipped && (e.key === "r" || e.key === "R")) {
+            speakDE(item.kind === "noun" ? item.art + " " + item.sg : item.inf);
+          }
+        } else if (state.pMode === "verbs" && state.pFeedback && e.key === "Enter") {
           e.preventDefault();
           nextCard();
         }

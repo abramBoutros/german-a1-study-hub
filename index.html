@@ -4,9 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>German A1 — Master Study Hub (Kapitel 2–8)</title>
+  <meta name="description" content="Interactive German A1 Study Hub covering Kapitel 2–8: nouns in all forms, conjugated verbs, chapter grammar, software engineering extras, audio playback & practice lab." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
   <div class="app-shell">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -14,12 +20,13 @@
         <div class="brand-flag" aria-hidden="true"></div>
         <div>
           <h1>German A1</h1>
-          <p>Master Study Hub · K2–K8</p>
+          <p>Study Hub · Kapitel 2–8</p>
         </div>
+        <button class="sidebar-close-btn" id="sidebarCloseBtn" aria-label="Close menu">✕</button>
       </div>
 
       <div>
-        <div class="nav-section-label">Overview &amp; Tools</div>
+        <div class="nav-section-label">Overview &amp; Practice</div>
         <div class="nav-list" id="nav-global"></div>
       </div>
 
@@ -48,27 +55,33 @@
           <input
             type="text"
             id="globalSearch"
-            placeholder="Search any German or English word, plural, verb, or grammar rule… (Press /)"
+            placeholder="Search German or English word, plural, verb, grammar…"
             autocomplete="off"
           />
+          <kbd class="search-kbd" id="searchKbd">/</kbd>
           <button class="search-clear" id="searchClear" aria-label="Clear search">✕</button>
         </div>
-        <div class="audio-control" title="Adjust German audio playback speed">
-          <span class="audio-label">🔊</span>
-          <button class="speed-btn" data-speed="0.5" title="Very slow (0.5x)">0.5×</button>
-          <button class="speed-btn" data-speed="0.7" title="Slow (0.7x)">0.7×</button>
-          <button class="speed-btn" data-speed="0.85" title="Clear A1 (0.85x)">0.85×</button>
-          <button class="speed-btn" data-speed="1" title="Normal (1.0x)">1×</button>
-          <button class="speed-stop" id="audioStopBtn" title="Stop audio">⏹</button>
+        <div class="topbar-controls">
+          <div class="audio-control" title="Adjust German audio playback speed">
+            <span class="audio-label">🔊</span>
+            <button class="speed-btn" data-speed="0.5" title="Very slow (0.5×)">0.5×</button>
+            <button class="speed-btn" data-speed="0.7" title="Slow (0.7×)">0.7×</button>
+            <button class="speed-btn" data-speed="0.85" title="Clear A1 (0.85×)">0.85×</button>
+            <button class="speed-btn" data-speed="1" title="Normal (1×)">1×</button>
+            <button class="speed-stop" id="audioStopBtn" title="Stop audio">⏹</button>
+          </div>
+          <button class="icon-btn" id="themeToggle" title="Toggle Dark/Light Theme">🌙</button>
         </div>
-        <button class="icon-btn" id="themeToggle" title="Toggle Dark/Light Theme">🌙 Dark</button>
       </header>
 
-      <div id="contentRoot"></div>
+      <div class="content-inner" id="contentRoot"></div>
     </main>
   </div>
 
-  <!-- Load Chapter Data (works directly via file:// with zero CORS issues) -->
+  <button class="scroll-top-btn" id="scrollTopBtn" title="Back to top" aria-label="Back to top">↑</button>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Load Chapter Data -->
   <script src="data-ch2-4.js"></script>
   <script src="data-ch5-6.js"></script>
   <script src="data-ch7-8.js"></script>
