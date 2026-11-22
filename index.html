@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>German A1 — Master Study Hub (Kapitel 2–8)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-flag" aria-hidden="true"></div>
+        <div>
+          <h1>German A1</h1>
+          <p>Master Study Hub · K2–K8</p>
+        </div>
+      </div>
+
+      <div>
+        <div class="nav-section-label">Overview &amp; Tools</div>
+        <div class="nav-list" id="nav-global"></div>
+      </div>
+
+      <div>
+        <div class="nav-section-label">Chapters (Kapitel 2–8)</div>
+        <div class="nav-list" id="nav-chapters"></div>
+      </div>
+
+      <div class="gender-legend">
+        <div class="gender-legend-title">Article Color System</div>
+        <div class="legend-row">
+          <span class="art-der">der · Masc</span>
+          <span class="art-das">das · Neut</span>
+          <span class="art-die">die · Fem</span>
+          <span class="g-p">die · Pl</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Area -->
+    <main class="main">
+      <header class="topbar">
+        <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle Menu">☰</button>
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            id="globalSearch"
+            placeholder="Search any German or English word, plural, verb, or grammar rule… (Press /)"
+            autocomplete="off"
+          />
+          <button class="search-clear" id="searchClear" aria-label="Clear search">✕</button>
+        </div>
+        <div class="audio-control" title="Adjust German audio playback speed">
+          <span class="audio-label">🔊</span>
+          <button class="speed-btn" data-speed="0.5" title="Very slow (0.5x)">0.5×</button>
+          <button class="speed-btn" data-speed="0.7" title="Slow (0.7x)">0.7×</button>
+          <button class="speed-btn" data-speed="0.85" title="Clear A1 (0.85x)">0.85×</button>
+          <button class="speed-btn" data-speed="1" title="Normal (1.0x)">1×</button>
+          <button class="speed-stop" id="audioStopBtn" title="Stop audio">⏹</button>
+        </div>
+        <button class="icon-btn" id="themeToggle" title="Toggle Dark/Light Theme">🌙 Dark</button>
+      </header>
+
+      <div id="contentRoot"></div>
+    </main>
+  </div>
+
+  <!-- Load Chapter Data (works directly via file:// with zero CORS issues) -->
+  <script src="data-ch2-4.js"></script>
+  <script src="data-ch5-6.js"></script>
+  <script src="data-ch7-8.js"></script>
+  <script src="ex-translations.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
