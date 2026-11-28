@@ -102,7 +102,8 @@ window.A1_GRAMMAR_CHEATSHEET = [
           ["<strong>bei</strong>", "Dativ · Wo?", "<strong>beim</strong>", "beim Arzt, bei Siemens, beim Essen"],
           ["<strong>aus</strong>", "Dativ · Woher?", "—", "aus Ägypten, aus dem Büro, aus Holz"],
           ["<strong>von</strong>", "Dativ · Woher?", "<strong>vom</strong>", "vom Arzt, vom Bahnhof, von meinem Freund"],
-          ["<strong>in</strong>", "Wo? Dat.<br>Wohin? Akk.", "<strong>im</strong> (in+dem)<br><strong>ins</strong> (in+das)", "im Kino (in) vs. ins Kino (into)"]
+          ["<strong>in</strong>", "Wo? Dat.<br>Wohin? Akk.", "<strong>im</strong> (in+dem)<br><strong>ins</strong> (in+das)", "im Kino (in) vs. ins Kino (into)"],
+          ["<strong>an, auf, hinter, neben, über, unter, vor, zwischen</strong>", "Wo? Dat.<br>Wohin? Akk.", "<strong>am, ans</strong>", "auf dem Tisch (Wo?) vs. auf den Tisch (Wohin?)"]
         ]
       },
       {
@@ -163,5 +164,8 @@ window.A1_GRAMMAR_CLOZE_BANK = [
   { chId: 7, tag: "Dativ Plural", prompt: "Laura feiert mit den ______.", en: "Laura celebrates with the employees (die Mitarbeiter).", answer: "Mitarbeitern", options: ["Mitarbeitern", "Mitarbeiter", "Mitarbeiters", "Mitarbeitere"], rule: "Dativ Plural adds <strong>-n</strong> to the noun: <em>mit den Mitarbeitern</em>." },
   { chId: 7, tag: "Negative Question", prompt: "Haben Sie keinen Zucker? — ______! Hier steht er.", en: "Don't you have sugar? — Yes we do! Here it is.", answer: "Doch", options: ["Doch", "Ja", "Nein", "Aber"], rule: "Use <strong>Doch!</strong> to say YES to a negative question." },
   { chId: 8, tag: "Dativ Verb", prompt: "Können Sie ______ bitte helfen?", en: "Can you please help me?", answer: "mir", options: ["mir", "mich", "ich", "mein"], rule: "<em>helfen</em> always governs <strong>Dativ</strong>: <em>ich → mir</em>." },
-  { chId: 8, tag: "Modal Verb", prompt: "Bei Fieber ______ Sie im Bett bleiben.", en: "With a fever you should stay in bed.", answer: "sollen", options: ["sollen", "sollt", "soll", "sollst"], rule: "Formal <code>Sie</code> uses the infinitive form: <strong>Sie sollen</strong>." }
+  { chId: 8, tag: "Modal Verb", prompt: "Bei Fieber ______ Sie im Bett bleiben.", en: "With a fever you should stay in bed.", answer: "sollen", options: ["sollen", "sollt", "soll", "sollst"], rule: "Formal <code>Sie</code> uses the infinitive form: <strong>Sie sollen</strong>." },
+  { chId: 9, tag: "Wechselpräp. (Wohin?)", prompt: "Ich stelle den Tisch ______ die Stühle.", en: "I put the table between the chairs (Wohin?).", answer: "zwischen", options: ["zwischen", "über", "unter", "an"], rule: "<em>stellen</em> = Action (Wohin? + Akk.): <strong>zwischen die Stühle</strong>." },
+  { chId: 9, tag: "Wechselpräp. (Wo?)", prompt: "Das Bild hängt an ______ Wand.", en: "The picture is hanging on the wall (die Wand, Wo?).", answer: "der", options: ["der", "die", "dem", "den"], rule: "<em>hängt</em> (position, Wo?) takes <strong>Dativ</strong>: <code>die Wand</code> → <strong>an der Wand</strong>." },
+  { chId: 9, tag: "Action vs. Position", prompt: "Ich ______ das Buch auf den Tisch.", en: "I lay the book onto the table (Action, Wohin?).", answer: "lege", options: ["lege", "liege", "stelle", "stehe"], rule: "Laying something flat (Wohin? + Akk.) uses the action verb <strong>legen</strong> (not <em>liegen</em>!)." }
 ];

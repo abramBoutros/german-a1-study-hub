@@ -3,10 +3,11 @@
   const EX_EN = window.A1_EX_EN || {};
   const CHEATSHEET = window.A1_GRAMMAR_CHEATSHEET || [];
   const GRAMMAR_CLOZE_BANK = window.A1_GRAMMAR_CLOZE_BANK || [];
+  const GRAMMAR_EXAM_BANK = window.A1_GRAMMAR_EXAM_BANK || [];
 
   // State
   const state = {
-    view: "all", // "all" | "practice" | "starred" | chapter id (2..8)
+    view: "all", // "all" | "practice" | "exams" | "starred" | chapter id (2..9)
     tab: "nouns", // "nouns" | "verbs" | "expressions" | "grammar"
     search: "",
     nounGender: "all",
@@ -40,10 +41,20 @@
     pStreak: parseInt(localStorage.getItem("german_a1_streak") || "0", 10),
     pCorrect: parseInt(localStorage.getItem("german_a1_correct") || "0", 10),
     pTotal: parseInt(localStorage.getItem("german_a1_total") || "0", 10),
-    pVerbPron: null
+    pVerbPron: null,
+
+    // Chapter Exam Center state
+    examFilterCh: "all", // "all" | 2..9
+    examLength: 10, // 10 | 15 | 20
+    examFeedbackMode: "exam", // "exam" (grade at end) | "instant" (immediate feedback)
+    examIncludeExtra: true,
+    examScores: JSON.parse(localStorage.getItem("german_a1_exam_scores") || "{}"),
+    examSession: null, // { scope, area, title, questions, idx, answers, submitted, startedAt, elapsedSec, isRetry }
+    examReviewFilter: "all" // "all" | "missed"
   };
 
   let toastTimer = null;
+  let examTimerInterval = null;
 
   // Helpers
   const $ = (sel) => document.querySelector(sel);
@@ -406,6 +417,7 @@
   }
 
   function selectView(v) {
+    if (state.view === "exams" && v !== "exams") stopExamTimer();
     state.view = /^\d+$/.test(String(v)) ? Number(v) : v;
     state.nounCategory = "all";
     if (state.view === "practice") initPracticeDeck();
@@ -440,15 +452,21 @@
       `;
     }
 
+    const examPassedCount = Object.values(state.examScores).filter((s) => s && s.bestPct >= 80).length;
     const globalEl = $("#nav-global");
     globalEl.innerHTML = `
       <button class="nav-btn ${state.view === "all" ? "active" : ""}" data-view="all">
         <span class="nav-icon">📚</span>
-        <span class="nav-text">All Chapters (K2–K8)<span class="nav-sub">${totals.nouns.length} nouns · ${totals.verbs.length} verbs</span></span>
+        <span class="nav-text">All Chapters (K2–K9)<span class="nav-sub">${totals.nouns.length} nouns · ${totals.verbs.length} verbs</span></span>
       </button>
       <button class="nav-btn ${state.view === "practice" ? "active" : ""}" data-view="practice">
         <span class="nav-icon">⚡</span>
         <span class="nav-text">Practice Lab<span class="nav-sub">4 interactive drill modes</span></span>
+      </button>
+      <button class="nav-btn ${state.view === "exams" ? "active" : ""}" data-view="exams">
+        <span class="nav-icon">📝</span>
+        <span class="nav-text">Chapter Exams<span class="nav-sub">Grammar · Vocab · Verbs · Audio</span></span>
+        ${examPassedCount > 0 ? `<span class="nav-badge">${examPassedCount}✓</span>` : ""}
       </button>
       <button class="nav-btn ${state.view === "starred" ? "active" : ""}" data-view="starred">
         <span class="nav-icon">⭐</span>
@@ -485,11 +503,16 @@
   // =========================================================================
   function renderContent() {
     const root = $("#contentRoot");
-    root.classList.toggle("hide-en", state.recallMode === "en" && state.view !== "practice");
-    root.classList.toggle("hide-art", state.recallMode === "art" && state.view !== "practice");
+    const hideDisabled = state.view === "practice" || state.view === "exams";
+    root.classList.toggle("hide-en", state.recallMode === "en" && !hideDisabled);
+    root.classList.toggle("hide-art", state.recallMode === "art" && !hideDisabled);
 
     if (state.view === "practice") {
       renderPracticeLab(root);
+      return;
+    }
+    if (state.view === "exams") {
+      renderExamCenter(root);
       return;
     }
 
@@ -546,6 +569,7 @@
             </div>
             <div class="hero-actions">
               <button class="btn-secondary" id="heroCheatBtn">📖 Grammar Sheet</button>
+              <button class="btn-secondary" id="examChapterBtn">📝 ${esc(ch.code)} Exams</button>
               <button class="btn-primary" id="practiceChapterBtn">⚡ Practice ${esc(ch.code)}</button>
             </div>
           </div>
@@ -566,7 +590,7 @@
             <div>
               <div class="hero-kicker" style="color:#d97706">⭐ Personal Focus List</div>
               <h2>Starred Words &amp; Verbs</h2>
-              <p class="hero-desc">Click the ★ star on any noun, verb, or phrase across Kapitel 2–8 to collect tricky items here for focused drilling.</p>
+              <p class="hero-desc">Click the ★ star on any noun, verb, or phrase across Kapitel 2–9 to collect tricky items here for focused drilling.</p>
             </div>
             ${state.starred.size > 0 ? `<button class="btn-primary" id="practiceStarredBtn">⚡ Practice Starred (${state.starred.size})</button>` : ""}
           </div>
@@ -581,11 +605,12 @@
           <div class="hero-top">
             <div>
               <div class="hero-kicker">🇩🇪 German A1 Complete Reference</div>
-              <h2>Kapitel 2 – 8 Study Studio</h2>
+              <h2>Kapitel 2 – 9 Study Studio</h2>
               <p class="hero-desc">Every noun in all forms, every verb fully conjugated, translated examples with adjustable German audio, software engineering extras, mastery tracking, and complete chapter grammar.</p>
             </div>
             <div class="hero-actions">
               <button class="btn-secondary" id="heroCheatBtn">📖 Grammar Sheet</button>
+              <button class="btn-secondary" id="examAllBtn">📝 Chapter Exams</button>
               <button class="btn-primary" id="practiceAllBtn">⚡ Practice Lab</button>
             </div>
           </div>
@@ -1079,6 +1104,10 @@
     if (pStar) pStar.addEventListener("click", () => launchPractice("starred"));
     const pCh = $("#practiceChapterBtn");
     if (pCh) pCh.addEventListener("click", () => launchPractice(state.view));
+    const eAll = $("#examAllBtn");
+    if (eAll) eAll.addEventListener("click", () => openExamCenter("all"));
+    const eCh = $("#examChapterBtn");
+    if (eCh) eCh.addEventListener("click", () => openExamCenter(state.view));
     const hCheat = $("#heroCheatBtn");
     if (hCheat) hCheat.addEventListener("click", () => openGrammarDrawer());
   }
@@ -1337,7 +1366,7 @@
         </div>
         <div class="pill-group">
           <select class="filter-select" id="pScopeSelect">
-            <option value="all" ${state.pScope === "all" ? "selected" : ""}>All Chapters (K2–K8)</option>
+            <option value="all" ${state.pScope === "all" ? "selected" : ""}>All Chapters (K2–K9)</option>
             <option value="starred" ${state.pScope === "starred" ? "selected" : ""}>⭐ Starred Only (${state.starred.size})</option>
             ${CHAPTERS.map((c) => `<option value="${c.id}" ${state.pScope === c.id ? "selected" : ""}>${esc(c.code)}: ${esc(c.title)}</option>`).join("")}
           </select>
@@ -1751,6 +1780,933 @@
   }
 
   // =========================================================================
+  // CHAPTER EXAM CENTER (GRAMMAR · VOCAB · VERBS · LISTENING · MIXED)
+  // =========================================================================
+  const EXAM_AREAS = [
+    { id: "grammar", label: "Grammar", icon: "📘", desc: "Chapter grammar rules, cases, word order & endings" },
+    { id: "vocab", label: "Vocabulary", icon: "📚", desc: "Meanings (DE↔EN), articles (der/das/die) & plurals" },
+    { id: "verbs", label: "Verbs", icon: "⚙️", desc: "Typed conjugations, vowel changes, modals & past forms" },
+    { id: "listening", label: "Listening", icon: "🔊", desc: "Audio comprehension + Nachsprechen (shadowing aloud)" },
+    { id: "mixed", label: "Full Chapter Exam", icon: "🎯", desc: "Balanced mix: 40% Grammar · 30% Vocab · 20% Verbs · 10% Listening" }
+  ];
+
+  function examScoreKey(scope, area) {
+    return `${scope}:${area}`;
+  }
+
+  function saveExamScore(scope, area, pct, correct, total) {
+    const k = examScoreKey(scope, area);
+    const prev = state.examScores[k];
+    const next = {
+      bestPct: prev ? Math.max(prev.bestPct, pct) : pct,
+      lastPct: pct,
+      lastCorrect: correct,
+      lastTotal: total,
+      attempts: (prev ? prev.attempts : 0) + 1,
+      updatedAt: new Date().toISOString()
+    };
+    state.examScores[k] = next;
+    localStorage.setItem("german_a1_exam_scores", JSON.stringify(state.examScores));
+  }
+
+  function stopExamTimer() {
+    if (examTimerInterval) {
+      clearInterval(examTimerInterval);
+      examTimerInterval = null;
+    }
+  }
+
+  function startExamTimer() {
+    stopExamTimer();
+    examTimerInterval = setInterval(() => {
+      if (!state.examSession || state.examSession.submitted || state.view !== "exams") {
+        stopExamTimer();
+        return;
+      }
+      state.examSession.elapsedSec = Math.floor((Date.now() - state.examSession.startedAt) / 1000);
+      const el = $("#examTimerVal");
+      if (el) el.textContent = formatExamTime(state.examSession.elapsedSec);
+    }, 1000);
+  }
+
+  function formatExamTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  function openExamCenter(chFilter = "all") {
+    stopExamTimer();
+    state.examSession = null;
+    state.examFilterCh = chFilter;
+    state.view = "exams";
+    closeSidebar();
+    renderNav();
+    renderContent();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function buildGrammarExamQuestions(chapters, count) {
+    const chIds = new Set(chapters.map((c) => c.id));
+    const curated = GRAMMAR_EXAM_BANK.filter((q) => chIds.has(q.chId)).map((q) => {
+      const ch = CHAPTERS.find((c) => c.id === q.chId);
+      return {
+        type: "mc",
+        area: "grammar",
+        topic: q.topic,
+        chCode: ch ? ch.code : `Kapitel ${q.chId}`,
+        key: null,
+        prompt: q.prompt,
+        en: q.en,
+        answer: q.answer,
+        options: shuffle(q.options),
+        fullSentence: q.prompt.includes("______") ? q.prompt.replace("______", q.answer) : q.answer,
+        rule: q.rule
+      };
+    });
+
+    let pool = shuffle(curated);
+    if (pool.length < count) {
+      const extras = buildCaseQuizDeck(chapters, { includeExtra: state.examIncludeExtra }).map((q) => ({
+        type: "mc",
+        area: "grammar",
+        topic: q.subkind,
+        chCode: q.chCode,
+        key: q.key,
+        prompt: q.prompt,
+        en: q.en,
+        answer: q.answer,
+        options: q.options,
+        fullSentence: q.fullSentence,
+        rule: q.rule
+      }));
+      pool = [...pool, ...extras];
+    }
+    return pool.slice(0, count);
+  }
+
+  function buildVocabExamQuestions(chapters, count) {
+    const scoped = collectAllData(chapters);
+    const globalAll = collectAllData(CHAPTERS);
+    const nouns = scoped.nouns.filter((n) => state.examIncludeExtra || !n.extra);
+    const exprs = scoped.expressions.filter((e) => state.examIncludeExtra || !e.extra);
+    const allNouns = globalAll.nouns;
+    const allExprs = globalAll.expressions;
+
+    const pickDistractors = (items, excludeVal, getVal, n = 3) => {
+      const seen = new Set([excludeVal.toLowerCase()]);
+      const out = [];
+      for (const it of shuffle(items)) {
+        const v = getVal(it);
+        if (v && !seen.has(v.toLowerCase())) {
+          seen.add(v.toLowerCase());
+          out.push(v);
+          if (out.length === n) break;
+        }
+      }
+      return out;
+    };
+
+    const pool = [];
+    for (const n of shuffle(nouns)) {
+      const r = Math.random();
+      const cleanPl = cleanPluralForm(n.pl);
+      if (r < 0.32) {
+        // DE -> EN meaning
+        const d = pickDistractors(allNouns, n.en, (x) => x.en, 3);
+        pool.push({
+          type: "mc",
+          area: "vocab",
+          topic: "Meaning (DE → EN)",
+          chCode: n.chCode,
+          key: n.key,
+          prompt: `Was bedeutet „${n.art} ${n.sg}“?`,
+          en: n.ex ? `Context: „${n.ex}“` : "Choose the English meaning",
+          answer: n.en,
+          options: shuffle([n.en, ...d]),
+          fullSentence: `${n.art} ${n.sg}. ${n.ex || ""}`.trim(),
+          rule: `<strong>${n.art} ${n.sg}</strong> (Pl. <em>${n.pl}</em>) = <strong>${n.en}</strong>.`
+        });
+      } else if (r < 0.62) {
+        // EN -> DE with article
+        const ans = `${n.art} ${n.sg}`;
+        const d = pickDistractors(allNouns, ans, (x) => `${x.art} ${x.sg}`, 3);
+        pool.push({
+          type: "mc",
+          area: "vocab",
+          topic: "Word Recall (EN → DE)",
+          chCode: n.chCode,
+          key: n.key,
+          prompt: `Wie sagt man „${n.en}“ auf Deutsch?`,
+          en: `Category: ${n.cat.replace(/^Extra:\s*/, "")}`,
+          answer: ans,
+          options: shuffle([ans, ...d]),
+          fullSentence: `${ans}. ${n.ex || ""}`.trim(),
+          rule: `<strong>${n.en}</strong> → <strong>${ans}</strong> (Pl. <em>${n.pl}</em>).`
+        });
+      } else if (r < 0.82 && ["der", "das", "die"].includes(n.art)) {
+        // Article check
+        pool.push({
+          type: "mc",
+          area: "vocab",
+          topic: "Article (der / das / die)",
+          chCode: n.chCode,
+          key: n.key,
+          prompt: `Welcher Artikel passt? ______ ${n.sg}`,
+          en: `Meaning: ${n.en}`,
+          answer: n.art,
+          options: ["der", "das", "die"],
+          fullSentence: `${n.art} ${n.sg}`,
+          rule: `<strong>${n.art} ${n.sg}</strong> · Akk: <em>${n.akk}</em> · Dat: <em>${n.dat}</em>.`
+        });
+      } else if (cleanPl) {
+        // Plural check
+        pool.push({
+          type: "mc",
+          area: "vocab",
+          topic: "Plural Form",
+          chCode: n.chCode,
+          key: n.key,
+          prompt: `Plural von „${n.art} ${n.sg}“: ______`,
+          en: `Meaning: ${n.en}`,
+          answer: cleanPl,
+          options: buildPluralDistractors(n, cleanPl),
+          fullSentence: `${n.art} ${n.sg}, ${cleanPl}`,
+          rule: `Singular: <strong>${n.art} ${n.sg}</strong> → Plural: <strong>${cleanPl}</strong>.`
+        });
+      }
+    }
+
+    for (const e of shuffle(exprs).slice(0, Math.max(2, Math.floor(count * 0.2)))) {
+      const d = pickDistractors(allExprs, e.en, (x) => x.en, 3);
+      pool.push({
+        type: "mc",
+        area: "vocab",
+        topic: "Phrase / Expression",
+        chCode: e.chCode,
+        key: e.key,
+        prompt: `Was bedeutet „${e.de}“?`,
+        en: e.note || "Choose the best translation",
+        answer: e.en,
+        options: shuffle([e.en, ...d]),
+        fullSentence: e.de.replace(/[↔\/]/g, ", "),
+        rule: `<strong>${e.de}</strong> = <strong>${e.en}</strong>${e.note ? ` — ${e.note}` : ""}.`
+      });
+    }
+
+    return shuffle(pool).slice(0, count);
+  }
+
+  function buildVerbExamQuestions(chapters, count) {
+    const scoped = collectAllData(chapters);
+    const verbs = shuffle(scoped.verbs.filter((v) => state.examIncludeExtra || !v.extra));
+    const prons = [
+      { key: "ich", label: "ich" },
+      { key: "du", label: "du" },
+      { key: "er", label: "er / sie / es" },
+      { key: "wir", label: "wir" },
+      { key: "ihr", label: "ihr" },
+      { key: "sie", label: "sie / Sie" }
+    ];
+
+    const pool = [];
+    let safety = 0;
+    while (pool.length < count && verbs.length > 0 && safety < count * 3) {
+      const v = verbs[safety % verbs.length];
+      safety++;
+      const pron = prons[Math.floor(Math.random() * prons.length)];
+      const expected = v[pron.key];
+      if (!expected) continue;
+      pool.push({
+        type: "input",
+        area: "verbs",
+        topic: `${v.type} Verb (${pron.label})`,
+        chCode: v.chCode,
+        key: v.key,
+        prompt: `${pron.label} + ${v.inf}`,
+        en: `${v.en} · Case: ${v.caseGov}`,
+        answer: expected,
+        pronLabel: pron.label,
+        infinitive: v.inf,
+        fullSentence: `${pron.key === "er" ? "er" : pron.key} ${expected}. ${v.ex || ""}`.trim(),
+        rule: `<strong>${pron.label} ${expected}</strong> (Infinitiv: <em>${v.inf}</em> · ${v.type}). Beispiel: „${v.ex}“`
+      });
+    }
+    return pool.slice(0, count);
+  }
+
+  function buildListeningExamQuestions(chapters, count) {
+    const scoped = collectAllData(chapters);
+    const globalAll = collectAllData(CHAPTERS);
+
+    const candidates = [];
+    for (const n of scoped.nouns) {
+      if (!state.examIncludeExtra && n.extra) continue;
+      if (n.ex && EX_EN[n.ex]) {
+        candidates.push({ de: n.ex, en: EX_EN[n.ex], chCode: n.chCode, key: n.key, focus: `${n.art} ${n.sg} (${n.en})` });
+      }
+    }
+    for (const v of scoped.verbs) {
+      if (!state.examIncludeExtra && v.extra) continue;
+      if (v.ex && EX_EN[v.ex]) {
+        candidates.push({ de: v.ex, en: EX_EN[v.ex], chCode: v.chCode, key: v.key, focus: `${v.inf} (${v.en})` });
+      }
+    }
+    for (const e of scoped.expressions) {
+      if (!state.examIncludeExtra && e.extra) continue;
+      candidates.push({ de: e.de.replace(/[↔\/]/g, ", "), en: e.en, chCode: e.chCode, key: e.key, focus: e.note || e.de });
+    }
+
+    const allEnPool = [];
+    for (const n of globalAll.nouns) if (n.ex && EX_EN[n.ex]) allEnPool.push(EX_EN[n.ex]);
+    for (const v of globalAll.verbs) if (v.ex && EX_EN[v.ex]) allEnPool.push(EX_EN[v.ex]);
+    for (const e of globalAll.expressions) allEnPool.push(e.en);
+
+    const seenDe = new Set();
+    const uniqueCands = shuffle(candidates).filter((c) => {
+      if (seenDe.has(c.de)) return false;
+      seenDe.add(c.de);
+      return true;
+    });
+
+    return uniqueCands.slice(0, count).map((c) => {
+      const distractors = [];
+      const seenEn = new Set([c.en.toLowerCase()]);
+      for (const en of shuffle(allEnPool)) {
+        if (!seenEn.has(en.toLowerCase())) {
+          seenEn.add(en.toLowerCase());
+          distractors.push(en);
+          if (distractors.length === 3) break;
+        }
+      }
+      return {
+        type: "listening",
+        area: "listening",
+        topic: "Listening + Nachsprechen",
+        chCode: c.chCode,
+        key: c.key,
+        prompt: "Listen carefully and choose the matching English meaning:",
+        en: "Click 🔊 Play Audio (or press R) as many times as you need.",
+        audioText: c.de,
+        answer: c.en,
+        options: shuffle([c.en, ...distractors]),
+        fullSentence: c.de,
+        rule: `<strong>„${c.de}“</strong> = <em>${c.en}</em> · Focus: ${c.focus}`
+      };
+    });
+  }
+
+  function buildExamQuestions(scope, area, length) {
+    const chs = typeof scope === "number" ? CHAPTERS.filter((c) => c.id === scope) : CHAPTERS;
+    if (area === "grammar") return buildGrammarExamQuestions(chs, length);
+    if (area === "vocab") return buildVocabExamQuestions(chs, length);
+    if (area === "verbs") return buildVerbExamQuestions(chs, length);
+    if (area === "listening") return buildListeningExamQuestions(chs, length);
+
+    // Mixed exam: 40% grammar, 30% vocab, 20% verbs, 10% listening
+    const nG = Math.max(2, Math.round(length * 0.4));
+    const nV = Math.max(2, Math.round(length * 0.3));
+    const nVb = Math.max(1, Math.round(length * 0.2));
+    const nL = Math.max(1, length - nG - nV - nVb);
+    return shuffle([
+      ...buildGrammarExamQuestions(chs, nG),
+      ...buildVocabExamQuestions(chs, nV),
+      ...buildVerbExamQuestions(chs, nVb),
+      ...buildListeningExamQuestions(chs, nL)
+    ]);
+  }
+
+  function startExam(scope, area, customQuestions = null, isRetry = false) {
+    const ch = typeof scope === "number" ? CHAPTERS.find((c) => c.id === scope) : null;
+    const areaMeta = EXAM_AREAS.find((a) => a.id === area) || EXAM_AREAS[0];
+    const questions = customQuestions || buildExamQuestions(scope, area, state.examLength);
+    if (!questions || questions.length === 0) {
+      showToast("No questions available for this selection.");
+      return;
+    }
+
+    state.view = "exams";
+    state.examReviewFilter = "all";
+    state.examSession = {
+      scope,
+      area,
+      scopeLabel: ch ? `${ch.code}: ${ch.title}` : "Full A1 Mock (K2–K9)",
+      areaLabel: areaMeta.label,
+      areaIcon: areaMeta.icon,
+      questions,
+      idx: 0,
+      answers: new Array(questions.length).fill(null), // { value, ok }
+      submitted: false,
+      startedAt: Date.now(),
+      elapsedSec: 0,
+      isRetry
+    };
+
+    startExamTimer();
+    renderNav();
+    renderContent();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    if (questions[0].type === "listening") {
+      setTimeout(() => speakDE(questions[0].audioText), 250);
+    }
+  }
+
+  function checkExamAnswer(q, userValue) {
+    if (q.type === "input") {
+      return String(userValue || "").trim().toLowerCase() === String(q.answer).trim().toLowerCase();
+    }
+    return userValue === q.answer;
+  }
+
+  function submitExam() {
+    const sess = state.examSession;
+    if (!sess || sess.submitted) return;
+    stopExamTimer();
+    sess.elapsedSec = Math.floor((Date.now() - sess.startedAt) / 1000);
+    sess.submitted = true;
+
+    let correct = 0;
+    for (let i = 0; i < sess.questions.length; i++) {
+      const a = sess.answers[i];
+      if (a && a.ok) correct++;
+    }
+    const pct = Math.round((correct / sess.questions.length) * 100);
+    if (!sess.isRetry) {
+      saveExamScore(sess.scope, sess.area, pct, correct, sess.questions.length);
+    }
+    renderNav();
+    renderContent();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function renderExamCenter(root) {
+    if (state.examSession) {
+      if (state.examSession.submitted) renderExamResults(root);
+      else renderExamRunner(root);
+      return;
+    }
+
+    const totalPossible = (CHAPTERS.length + 1) * EXAM_AREAS.length;
+    const passedTotal = Object.values(state.examScores).filter((s) => s && s.bestPct >= 80).length;
+    const attemptedTotal = Object.keys(state.examScores).length;
+
+    const visibleChapters =
+      state.examFilterCh === "all"
+        ? [{ id: "all", code: "A1 Full Mock", title: "All Chapters (Kapitel 2–9)", icon: "🏆", color: "#1e4fd8" }, ...CHAPTERS]
+        : CHAPTERS.filter((c) => c.id === state.examFilterCh);
+
+    const renderCard = (ch) => {
+      const passedInCh = EXAM_AREAS.filter((a) => {
+        const sc = state.examScores[examScoreKey(ch.id, a.id)];
+        return sc && sc.bestPct >= 80;
+      }).length;
+
+      return `
+        <article class="exam-ch-card" style="--ch-color:${ch.color}">
+          <div class="exam-ch-head">
+            <div>
+              <div class="exam-ch-code">${ch.icon} ${esc(ch.code)}</div>
+              <h3 class="exam-ch-title">${esc(ch.title)}</h3>
+            </div>
+            <span class="exam-ch-pass-pill ${passedInCh === EXAM_AREAS.length ? "all-passed" : ""}">
+              ${passedInCh}/${EXAM_AREAS.length} passed
+            </span>
+          </div>
+          <div class="exam-area-list">
+            ${EXAM_AREAS.map((a) => {
+              const sc = state.examScores[examScoreKey(ch.id, a.id)];
+              let scoreBadge = `<span class="exam-score-tag">Start</span>`;
+              if (sc) {
+                const cls = sc.bestPct >= 80 ? "passed" : "needs-work";
+                scoreBadge = `<span class="exam-score-tag ${cls}">${sc.bestPct}%${sc.bestPct >= 80 ? " ✓" : ""}</span>`;
+              }
+              return `
+                <button class="exam-area-btn ${a.id === "mixed" ? "is-full" : ""}" data-start-scope="${ch.id}" data-start-area="${a.id}" title="${esc(a.desc)}">
+                  <span class="exam-area-label">${a.icon} ${esc(a.label)}</span>
+                  ${scoreBadge}
+                </button>
+              `;
+            }).join("")}
+          </div>
+        </article>
+      `;
+    };
+
+    root.innerHTML = `
+      <section class="hero">
+        <div class="hero-accent-bar" style="background:linear-gradient(90deg,#0f766e,#1e4fd8,#7c3aed)"></div>
+        <div class="hero-top">
+          <div>
+            <div class="hero-kicker" style="color:var(--mastered)">📝 Per-Kapitel Exam Center</div>
+            <h2>Test Grammar, Vocab, Verbs &amp; Listening</h2>
+            <p class="hero-desc">Take focused mini-exams for any Kapitel and any skill area on its own — pass with <strong>80%+</strong> to lock down each chapter before moving to A2.</p>
+          </div>
+          <div class="stats-row" style="margin-top:0">
+            <span class="stat-chip stat-mastery">✓ <strong>${passedTotal}/${totalPossible}</strong> Exams Passed</span>
+            <span class="stat-chip">📊 <strong>${attemptedTotal}</strong> Attempted</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="exam-launcher-bar">
+        <div class="pill-group">
+          <button class="pill ${state.examFilterCh === "all" ? "active" : ""}" data-exam-filter="all">All Chapters</button>
+          ${CHAPTERS.map((c) => `<button class="pill ${state.examFilterCh === c.id ? "active" : ""}" data-exam-filter="${c.id}">K${c.id}</button>`).join("")}
+        </div>
+        <div class="pill-group">
+          <select class="filter-select" id="examLenSelect" title="Questions per exam">
+            <option value="10" ${state.examLength === 10 ? "selected" : ""}>10 Questions (Quick)</option>
+            <option value="15" ${state.examLength === 15 ? "selected" : ""}>15 Questions (Standard)</option>
+            <option value="20" ${state.examLength === 20 ? "selected" : ""}>20 Questions (Deep)</option>
+          </select>
+          <select class="filter-select" id="examModeSelect" title="Feedback timing">
+            <option value="exam" ${state.examFeedbackMode === "exam" ? "selected" : ""}>🎯 Exam Mode (Grade at End)</option>
+            <option value="instant" ${state.examFeedbackMode === "instant" ? "selected" : ""}>💡 Training Mode (Instant Feedback)</option>
+          </select>
+          <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" id="examExtraCheck" ${state.examIncludeExtra ? "checked" : ""} /> Extras
+          </label>
+        </div>
+      </div>
+
+      <div class="exam-matrix-grid">
+        ${visibleChapters.map(renderCard).join("")}
+      </div>
+    `;
+
+    document.querySelectorAll("[data-exam-filter]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const v = b.dataset.examFilter;
+        state.examFilterCh = /^\d+$/.test(v) ? Number(v) : v;
+        renderContent();
+      })
+    );
+    document.querySelectorAll("[data-start-scope]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const rawScope = b.dataset.startScope;
+        const scope = /^\d+$/.test(rawScope) ? Number(rawScope) : rawScope;
+        startExam(scope, b.dataset.startArea);
+      })
+    );
+    const lenSel = $("#examLenSelect");
+    if (lenSel) lenSel.addEventListener("change", () => (state.examLength = Number(lenSel.value)));
+    const modeSel = $("#examModeSelect");
+    if (modeSel) modeSel.addEventListener("change", () => (state.examFeedbackMode = modeSel.value));
+    const extChk = $("#examExtraCheck");
+    if (extChk) extChk.addEventListener("change", () => (state.examIncludeExtra = extChk.checked));
+  }
+
+  function renderExamRunner(root) {
+    const sess = state.examSession;
+    const q = sess.questions[sess.idx];
+    const ans = sess.answers[sess.idx];
+    const answeredCount = sess.answers.filter((a) => a !== null).length;
+    const pct = Math.round(((sess.idx + 1) / sess.questions.length) * 100);
+    const showInstant = state.examFeedbackMode === "instant" && ans !== null;
+
+    let bodyHTML = "";
+    if (q.type === "listening") {
+      bodyHTML = `
+        <div class="exam-listening-box">
+          <button class="btn-primary speak-btn" id="examListenBtn" data-speak="${esc(q.audioText)}">🔊 Play German Audio (${state.speechRate}×)</button>
+          <span style="font-size:12px;color:var(--text-soft);">Press <kbd>R</kbd> to replay · Slow down speed in top bar if needed</span>
+        </div>
+        <div class="flashcard-sub" style="margin-bottom:14px;">${esc(q.prompt)}</div>
+        <div class="quiz-options-grid">
+          ${q.options
+            .map((opt, i) => {
+              let cls = "";
+              if (showInstant) {
+                if (opt === q.answer) cls = "opt-correct";
+                else if (ans && ans.value === opt) cls = "opt-wrong";
+              } else if (ans && ans.value === opt) {
+                cls = "opt-correct";
+              }
+              return `
+                <button class="quiz-opt-btn ${cls}" data-exam-opt="${i}" ${showInstant ? "disabled" : ""}>
+                  <span>${esc(opt)}</span>
+                  <span class="quiz-opt-key">${i + 1}</span>
+                </button>
+              `;
+            })
+            .join("")}
+        </div>
+        ${
+          showInstant
+            ? `
+          <div class="feedback-box ${ans.ok ? "feedback-ok" : "feedback-bad"}">
+            ${ans.ok ? "✅ Correct!" : `❌ Correct meaning: <strong>${esc(q.answer)}</strong>`}
+            <div style="margin-top:6px;font-weight:500;color:var(--text);">${q.rule}</div>
+            <div class="exam-shadow-tip">🗣️ <strong>Nachsprechen:</strong> Hit Replay and repeat „${esc(q.audioText)}“ <strong>out loud</strong> before moving on!</div>
+          </div>
+        `
+            : ""
+        }
+      `;
+    } else if (q.type === "input") {
+      const savedVal = ans ? ans.value : "";
+      bodyHTML = `
+        <div class="flashcard-word">${esc(q.pronLabel)} + <span style="color:var(--accent)">${esc(q.infinitive)}</span></div>
+        <div class="flashcard-sub">${esc(q.en)}</div>
+        <input type="text" class="drill-input" id="examVerbInput" value="${esc(savedVal)}" placeholder="Type conjugated form…" autocomplete="off" ${showInstant ? "disabled" : ""} />
+        <div class="umlaut-bar">
+          ${["ä", "ö", "ü", "ß"].map((ch) => `<button class="umlaut-btn" data-char="${ch}">${ch}</button>`).join("")}
+        </div>
+        ${
+          !showInstant
+            ? `<div style="display:flex;gap:10px;justify-content:center;margin-bottom:12px;">
+                <button class="btn-primary" id="examSaveInputBtn">${state.examFeedbackMode === "instant" ? "Check Answer" : "Save Answer →"}</button>
+              </div>`
+            : `
+          <div class="feedback-box ${ans.ok ? "feedback-ok" : "feedback-bad"}">
+            ${ans.ok ? `✅ Perfect! <strong>${esc(q.pronLabel)} ${esc(q.answer)}</strong>` : `❌ Correct answer: <strong>${esc(q.pronLabel)} ${esc(q.answer)}</strong>`}
+            <div style="margin-top:6px;font-weight:500;color:var(--text);">${q.rule}</div>
+          </div>
+        `
+        }
+      `;
+    } else {
+      const promptHTML = q.prompt.includes("______")
+        ? q.prompt.replace(
+            "______",
+            showInstant
+              ? `<span class="cloze-blank filled ${ans.ok ? "ok" : "bad"}">${esc(q.answer)}</span>`
+              : ans
+              ? `<span class="cloze-blank filled">${esc(ans.value)}</span>`
+              : `<span class="cloze-blank">______</span>`
+          )
+        : q.prompt;
+
+      bodyHTML = `
+        <div class="cloze-prompt">${promptHTML}</div>
+        <div class="flashcard-sub">${esc(q.en)}</div>
+        <div class="quiz-options-grid">
+          ${q.options
+            .map((opt, i) => {
+              let cls = "";
+              if (showInstant) {
+                if (opt === q.answer) cls = "opt-correct";
+                else if (ans && ans.value === opt) cls = "opt-wrong";
+              } else if (ans && ans.value === opt) {
+                cls = "opt-correct";
+              }
+              return `
+                <button class="quiz-opt-btn ${cls}" data-exam-opt="${i}" ${showInstant ? "disabled" : ""}>
+                  <span>${esc(opt)}</span>
+                  <span class="quiz-opt-key">${i + 1}</span>
+                </button>
+              `;
+            })
+            .join("")}
+        </div>
+        ${
+          showInstant
+            ? `
+          <div class="feedback-box ${ans.ok ? "feedback-ok" : "feedback-bad"}">
+            ${ans.ok ? "✅ Correct!" : `❌ Correct answer: <strong>${esc(q.answer)}</strong>`}
+            <div style="margin-top:6px;font-weight:500;color:var(--text);">${q.rule}</div>
+          </div>
+        `
+            : ""
+        }
+      `;
+    }
+
+    root.innerHTML = `
+      <div class="exam-runner-top">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn-secondary" id="exitExamBtn">← All Exams</button>
+          <span class="badge-ch">${esc(sess.scopeLabel)}</span>
+          <span class="badge-cat">${sess.areaIcon} ${esc(sess.areaLabel)}${sess.isRetry ? " · Missed Retry" : ""}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="exam-timer-chip">⏱ <span id="examTimerVal">${formatExamTime(sess.elapsedSec)}</span></span>
+          <span class="exam-timer-chip">${answeredCount}/${sess.questions.length} answered</span>
+          <button class="btn-primary" id="finishExamBtn">Finish &amp; Grade</button>
+        </div>
+      </div>
+
+      <div class="exam-dots">
+        ${sess.questions
+          .map((_, i) => {
+            const a = sess.answers[i];
+            let cls = i === sess.idx ? "current" : "";
+            if (a !== null && i !== sess.idx) {
+              if (state.examFeedbackMode === "instant") cls = a.ok ? "dot-ok" : "dot-bad";
+              else cls = "answered";
+            }
+            return `<button class="exam-dot ${cls}" data-exam-jump="${i}">${i + 1}</button>`;
+          })
+          .join("")}
+      </div>
+
+      <div class="practice-stage">
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <div class="card-meta" style="justify-content:center;">
+          <span class="badge-ch">${esc(q.chCode)}</span>
+          <span class="badge-cat">${esc(q.topic)}</span>
+          <span class="badge-cat">Question ${sess.idx + 1} / ${sess.questions.length}</span>
+        </div>
+
+        ${bodyHTML}
+
+        <div style="margin-top:18px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button class="btn-secondary" id="examPrevBtn" ${sess.idx === 0 ? "disabled" : ""}>← Previous</button>
+          ${
+            showInstant && q.fullSentence
+              ? `<button class="btn-secondary speak-btn" data-speak="${esc(q.fullSentence)}">🔊 Hear</button>`
+              : ""
+          }
+          ${
+            sess.idx < sess.questions.length - 1
+              ? `<button class="btn-primary" id="examNextBtn">Next Question →</button>`
+              : `<button class="btn-primary" id="examSubmitBottomBtn">Submit Exam ✓</button>`
+          }
+        </div>
+        <div class="kbd-hints">
+          <span><kbd>1</kbd>–<kbd>4</kbd> Select</span>
+          <span><kbd>Enter</kbd> Next</span>
+          ${q.type === "listening" ? `<span><kbd>R</kbd> Replay Audio</span>` : ""}
+          <span><kbd>G</kbd> Grammar Sheet</span>
+        </div>
+      </div>
+    `;
+
+    bindExamRunnerEvents(q);
+  }
+
+  function answerExamOption(optIdx) {
+    const sess = state.examSession;
+    if (!sess || sess.submitted) return;
+    const q = sess.questions[sess.idx];
+    if (!q.options || q.options[optIdx] === undefined) return;
+    if (state.examFeedbackMode === "instant" && sess.answers[sess.idx] !== null) return;
+
+    const chosen = q.options[optIdx];
+    const ok = checkExamAnswer(q, chosen);
+    sess.answers[sess.idx] = { value: chosen, ok };
+
+    if (state.examFeedbackMode === "instant") {
+      if (q.fullSentence) speakDE(q.fullSentence);
+      renderContent();
+    } else {
+      if (sess.idx < sess.questions.length - 1) {
+        sess.idx++;
+        renderContent();
+        const nextQ = sess.questions[sess.idx];
+        if (nextQ.type === "listening") setTimeout(() => speakDE(nextQ.audioText), 200);
+      } else {
+        renderContent();
+      }
+    }
+  }
+
+  function saveExamInputAnswer() {
+    const sess = state.examSession;
+    if (!sess || sess.submitted) return;
+    const q = sess.questions[sess.idx];
+    const inp = $("#examVerbInput");
+    const val = (inp ? inp.value : "").trim();
+    if (!val && state.examFeedbackMode === "instant") {
+      showToast("Type your answer first!");
+      return;
+    }
+    const ok = checkExamAnswer(q, val);
+    sess.answers[sess.idx] = { value: val, ok };
+
+    if (state.examFeedbackMode === "instant") {
+      if (q.fullSentence) speakDE(q.fullSentence);
+      renderContent();
+    } else if (sess.idx < sess.questions.length - 1) {
+      sess.idx++;
+      renderContent();
+    } else {
+      renderContent();
+    }
+  }
+
+  function bindExamRunnerEvents(q) {
+    const exitBtn = $("#exitExamBtn");
+    if (exitBtn) exitBtn.addEventListener("click", () => openExamCenter(state.examFilterCh));
+
+    const finishBtn = $("#finishExamBtn");
+    if (finishBtn) finishBtn.addEventListener("click", submitExam);
+    const submitBottom = $("#examSubmitBottomBtn");
+    if (submitBottom) submitBottom.addEventListener("click", submitExam);
+
+    const prevBtn = $("#examPrevBtn");
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        if (state.examSession.idx > 0) {
+          state.examSession.idx--;
+          renderContent();
+        }
+      });
+    }
+    const nextBtn = $("#examNextBtn");
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        if (state.examSession.idx < state.examSession.questions.length - 1) {
+          state.examSession.idx++;
+          renderContent();
+          const nq = state.examSession.questions[state.examSession.idx];
+          if (nq.type === "listening") setTimeout(() => speakDE(nq.audioText), 200);
+        }
+      });
+    }
+
+    document.querySelectorAll("[data-exam-jump]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.examSession.idx = Number(b.dataset.examJump);
+        renderContent();
+      })
+    );
+
+    document.querySelectorAll("[data-exam-opt]").forEach((b) =>
+      b.addEventListener("click", () => answerExamOption(Number(b.dataset.examOpt)))
+    );
+
+    const saveInpBtn = $("#examSaveInputBtn");
+    if (saveInpBtn) saveInpBtn.addEventListener("click", saveExamInputAnswer);
+
+    const inp = $("#examVerbInput");
+    if (inp) {
+      inp.focus();
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          saveExamInputAnswer();
+        }
+      });
+    }
+    document.querySelectorAll(".umlaut-btn").forEach((b) =>
+      b.addEventListener("click", () => {
+        if (!inp || inp.disabled) return;
+        const start = inp.selectionStart ?? inp.value.length;
+        const end = inp.selectionEnd ?? inp.value.length;
+        inp.value = inp.value.slice(0, start) + b.dataset.char + inp.value.slice(end);
+        inp.focus();
+        inp.setSelectionRange(start + 1, start + 1);
+      })
+    );
+
+    document.querySelectorAll(".speak-btn").forEach((b) =>
+      b.addEventListener("click", () => speakDE(b.dataset.speak, b))
+    );
+  }
+
+  function renderExamResults(root) {
+    const sess = state.examSession;
+    const total = sess.questions.length;
+    let correct = 0;
+    const missedQuestions = [];
+    for (let i = 0; i < total; i++) {
+      const a = sess.answers[i];
+      if (a && a.ok) correct++;
+      else missedQuestions.push(sess.questions[i]);
+    }
+    const pct = Math.round((correct / total) * 100);
+    const passed = pct >= 80;
+    const grade =
+      pct >= 90 ? "Sehr gut! 🏆" : pct >= 80 ? "Gut — Passed! ✓" : pct >= 65 ? "Befriedigend — Almost there" : "Noch üben — Review & Retry";
+
+    const rows = sess.questions
+      .map((q, i) => ({ q, i, ans: sess.answers[i], ok: Boolean(sess.answers[i] && sess.answers[i].ok) }))
+      .filter((r) => state.examReviewFilter === "all" || !r.ok);
+
+    root.innerHTML = `
+      <section class="exam-result-hero">
+        <div class="exam-grade-ring ${passed ? "" : "fail"}">
+          <span class="exam-grade-pct">${pct}%</span>
+          <span class="exam-grade-sub">${correct} / ${total}</span>
+        </div>
+        <div class="hero-kicker" style="color:${passed ? "var(--mastered)" : "var(--extra)"}">
+          ${sess.areaIcon} ${esc(sess.scopeLabel)} · ${esc(sess.areaLabel)}
+        </div>
+        <h2 style="margin:4px 0 8px;">${grade}</h2>
+        <p class="hero-desc" style="margin:0 auto 18px;max-width:560px;">
+          Completed in <strong>${formatExamTime(sess.elapsedSec)}</strong>.
+          ${passed ? "Score ≥ 80% — this chapter area is marked Passed!" : "Target is 80%+. Review your mistakes below and hit Retry Missed to lock them in."}
+        </p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          ${missedQuestions.length > 0 ? `<button class="btn-primary" id="retryMissedBtn">🔁 Retry Missed (${missedQuestions.length})</button>` : ""}
+          <button class="btn-secondary" id="retakeExamBtn">🔄 New Exam Attempt</button>
+          <button class="btn-secondary" id="backToExamsBtn">← All Chapter Exams</button>
+        </div>
+      </section>
+
+      <div class="filter-bar" style="margin-bottom:14px;">
+        <div class="pill-group">
+          <button class="pill ${state.examReviewFilter === "all" ? "active" : ""}" data-rev-filter="all">All Questions (${total})</button>
+          <button class="pill ${state.examReviewFilter === "missed" ? "active" : ""}" data-rev-filter="missed">❌ Missed Only (${missedQuestions.length})</button>
+        </div>
+      </div>
+
+      <div class="exam-review-list">
+        ${
+          rows.length === 0
+            ? `<div class="empty-state">🎉 Zero mistakes — perfect score!</div>`
+            : rows
+                .map(
+                  ({ q, i, ans, ok }) => `
+              <article class="exam-review-item ${ok ? "" : "is-wrong"}">
+                <div class="exam-review-head">
+                  <div class="pill-group">
+                    <span class="badge-ch">#${i + 1} · ${esc(q.chCode)}</span>
+                    <span class="badge-cat">${esc(q.topic)}</span>
+                    <span class="exam-score-tag ${ok ? "passed" : "needs-work"}">${ok ? "✓ Correct" : "✕ Missed"}</span>
+                  </div>
+                  <div class="card-actions">
+                    ${q.fullSentence ? `<button class="mini-btn speak-btn" data-speak="${esc(q.fullSentence)}" title="Hear German">🔊</button>` : ""}
+                    ${q.key ? `<button class="mini-btn star-btn ${state.starred.has(q.key) ? "starred" : ""}" data-star="${esc(q.key)}" title="Star for review">★</button>` : ""}
+                  </div>
+                </div>
+                <div class="exam-review-prompt">${q.type === "listening" ? `🔊 „${esc(q.audioText)}“` : q.prompt}</div>
+                <div style="font-size:12.5px;color:var(--text-soft);">${esc(q.en)}</div>
+                <div class="exam-review-answers">
+                  <span>Your answer: <strong style="color:${ok ? "var(--mastered)" : "var(--die)"}">${ans && ans.value ? esc(ans.value) : "<em>(unanswered)</em>"}</strong></span>
+                  ${!ok ? `<span>Correct: <strong style="color:var(--mastered)">${esc(q.answer)}</strong></span>` : ""}
+                </div>
+                <div style="font-size:13px;color:var(--text-muted);">${q.rule}</div>
+              </article>
+            `
+                )
+                .join("")
+        }
+      </div>
+    `;
+
+    const retryBtn = $("#retryMissedBtn");
+    if (retryBtn) {
+      retryBtn.addEventListener("click", () => {
+        const freshMissed = missedQuestions.map((mq) => ({
+          ...mq,
+          options: mq.options ? shuffle(mq.options) : undefined
+        }));
+        startExam(sess.scope, sess.area, freshMissed, true);
+      });
+    }
+    const retakeBtn = $("#retakeExamBtn");
+    if (retakeBtn) retakeBtn.addEventListener("click", () => startExam(sess.scope, sess.area));
+    const backBtn = $("#backToExamsBtn");
+    if (backBtn) backBtn.addEventListener("click", () => openExamCenter(state.examFilterCh));
+
+    document.querySelectorAll("[data-rev-filter]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.examReviewFilter = b.dataset.revFilter;
+        renderContent();
+      })
+    );
+    document.querySelectorAll(".speak-btn").forEach((b) =>
+      b.addEventListener("click", () => speakDE(b.dataset.speak, b))
+    );
+    document.querySelectorAll(".star-btn").forEach((b) =>
+      b.addEventListener("click", () => toggleStar(b.dataset.star))
+    );
+  }
+
+  // =========================================================================
   // GLOBAL INITIALIZATION
   // =========================================================================
   function init() {
@@ -1788,7 +2744,10 @@
     $("#drawerBackdrop").addEventListener("click", closeGrammarDrawer);
     $("#jumpFullGrammarBtn").addEventListener("click", () => {
       closeGrammarDrawer();
-      if (state.view === "practice" || state.view === "starred") state.view = "all";
+      if (state.view === "practice" || state.view === "exams" || state.view === "starred") {
+        stopExamTimer();
+        state.view = "all";
+      }
       state.tab = "grammar";
       renderNav();
       renderContent();
@@ -1820,7 +2779,8 @@
       const hasQ = state.search.length > 0;
       searchClear.classList.toggle("show", hasQ);
       if (searchKbd) searchKbd.style.display = hasQ ? "none" : "";
-      if (state.view === "practice") {
+      if (state.view === "practice" || state.view === "exams") {
+        stopExamTimer();
         state.view = "all";
         renderNav();
       }
@@ -1861,6 +2821,33 @@
           renderGrammarDrawer();
         }
         return;
+      }
+
+      if (state.view === "exams" && state.examSession && !state.examSession.submitted && !inInput && !state.grammarOpen) {
+        const sess = state.examSession;
+        const q = sess.questions[sess.idx];
+        if ((q.type === "mc" || q.type === "listening") && ["1", "2", "3", "4"].includes(e.key)) {
+          const idx = Number(e.key) - 1;
+          if (q.options && q.options[idx] !== undefined) answerExamOption(idx);
+          return;
+        }
+        if (q.type === "listening" && (e.key === "r" || e.key === "R")) {
+          e.preventDefault();
+          speakDE(q.audioText);
+          return;
+        }
+        if (e.key === "Enter" && sess.answers[sess.idx] !== null) {
+          e.preventDefault();
+          if (sess.idx < sess.questions.length - 1) {
+            sess.idx++;
+            renderContent();
+            const nq = sess.questions[sess.idx];
+            if (nq.type === "listening") setTimeout(() => speakDE(nq.audioText), 200);
+          } else {
+            submitExam();
+          }
+          return;
+        }
       }
 
       if (state.view === "practice" && state.pDeck.length > 0 && !inInput && !state.grammarOpen) {
